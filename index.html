@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>BITS Pilani Digital – Advanced Grading Console</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+body{
+  margin:0;
+  font-family:Segoe UI, Arial, sans-serif;
+  background:#f5f3ff;
+  color:#111827;
+}
+.container{
+  max-width:1100px;
+  margin:auto;
+  padding:16px;
+}
+header{
+  background:#ffffff;
+  border-radius:10px;
+  padding:14px 18px;
+  box-shadow:0 2px 10px rgba(0,0,0,.06);
+  margin-bottom:12px;
+}
+header h1{
+  margin:0;
+  font-size:20px;
+  color:#312e81;
+}
+header h2{
+  margin:2px 0 0;
+  font-size:14px;
+  font-weight:500;
+  color:#5b3cc4;
+}
+
+.controls{
+  display:grid;
+  grid-template-columns:1.2fr 1fr 1fr;
+  gap:12px;
+  margin-bottom:12px;
+}
+input,select{
+  padding:8px 10px;
+  border-radius:6px;
+  border:1px solid #d1d5db;
+}
+button{
+  padding:10px 16px;
+  border:none;
+  border-radius:6px;
+  background:#5b3cc4;
+  color:#fff;
+  font-weight:500;
+  cursor:pointer;
+}
+button:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+
+.workspace{
+  display:grid;
+  grid-template-columns:420px 1fr;
+  gap:14px;
+}
+
+.panel{
+  background:#ffffff;
+  border-radius:12px;
+  padding:12px;
+  box-shadow:0 4px 14px rgba(0,0,0,.08);
+}
+
+.stats{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:6px;
+  margin-top:8px;
+}
+.stat{
+  background:#f8fafc;
+  border-radius:6px;
+  padding:6px;
+  font-size:12px;
+  text-align:center;
+}
+
+.grade-summary{
+  margin-top:8px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  font-size:12px;
+}
+.grade-summary span{
+  background:#ede9fe;
+  padding:4px 8px;
+  border-radius:999px;
+}
+
+.grade-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:10px;
+}
+.grade{
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  padding:8px;
+  background:#fafafa;
+}
+.min select{background:#fff7ed}
+.max select{background:#eff6ff}
+
+.error{
+  color:#b91c1c;
+  font-size:13px;
+  margin-top:8px;
+}
+.notice{
+  margin-top:10px;
+  font-size:13px;
+  color:#065f46;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<header>
+  <h1>BITS Pilani Digital</h1>
+  <h2>Advanced Grading Console</h2>
+</header>
+
+<div class="controls">
+  <input id="instructor" placeholder="Instructor name (mandatory)">
+  <input type="file" id="file" accept=".xlsx">
+  <select id="course">
+    <option value="">Select course</option>
+  </select>
+</div>
+
+<div id="welcome" class="notice"></div>
+
+<div class="workspace">
+  <!-- ANALYTICS -->
+  <div class="panel">
+    <canvas id="hist" width="380" height="240"></canvas>
+
+    <div class="stats">
+      <div class="stat">Max<br><b id="max"></b></div>
+      <div class="stat">Min<br><b id="min"></b></div>
+      <div class="stat">Avg<br><b id="avg"></b></div>
+      <div class="stat">Median<br><b id="med"></b></div>
+    </div>
+
+    <div class="grade-summary" id="gradeSummary"></div>
+  </div>
+
+  <!-- GRADING -->
+  <div class="panel">
+    <div class="grade-grid" id="grades"></div>
+    <div class="error" id="rangeError"></div>
+    <button id="download" disabled>Finalize & Download</button>
+    <div id="thankyou" class="notice"></div>
+  </div>
+</div>
+
+</div>
+
+<script>
+const GRADES=["A","A-","B","B-","C","C-","D","E"];
+const DEFAULTS={
+  "A":[80,100],"A-":[70,79],"B":[60,69],"B-":[50,59],
+  "C":[40,49],"C-":[30,39],"D":[20,29],"E":[0,19]
+};
+
+let data=[];
+
+file.onchange=e=>{
+  const r=new FileReader();
+  r.onload=ev=>{
+    const wb=XLSX.read(ev.target.result,{type:"binary"});
+    data=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+    [...new Set(data.map(d=>d.Course))].forEach(c=>{
+      course.add(new Option(c,c));
+    });
+  };
+  r.readAsBinaryString(e.target.files[0]);
+};
+
+course.onchange=()=>{
+  if(!instructor.value.trim()){
+    alert("Please enter instructor name first");
+    course.value="";
+    return;
+  }
+  welcome.innerText=`Welcome ${instructor.value}. Please review and finalize grading.`;
+  buildGradeUI();
+  updateAll();
+};
+
+function buildGradeUI(){
+  grades.innerHTML="";
+  GRADES.forEach(g=>{
+    const card=document.createElement("div");
+    card.className="grade";
+
+    const minSel=document.createElement("select");
+    const maxSel=document.createElement("select");
+
+    for(let i=0;i<=100;i++){
+      minSel.add(new Option(i,i,i===DEFAULTS[g][0],i===DEFAULTS[g][0]));
+      maxSel.add(new Option(i,i,i===DEFAULTS[g][1],i===DEFAULTS[g][1]));
+    }
+
+    minSel.id=g+"min";
+    maxSel.id=g+"max";
+    minSel.onchange=updateAll;
+    maxSel.onchange=updateAll;
+
+    card.innerHTML=`<strong>${g}</strong><div class="min">Min</div>`;
+    card.querySelector(".min").appendChild(minSel);
+    const maxDiv=document.createElement("div");
+    maxDiv.className="max";
+    maxDiv.innerText="Max";
+    maxDiv.appendChild(maxSel);
+    card.appendChild(maxDiv);
+
+    grades.appendChild(card);
+  });
+}
+
+function validateRanges(){
+  for(let i=0;i<GRADES.length;i++){
+    const g=GRADES[i];
+    const minV=+document.getElementById(g+"min").value;
+    const maxV=+document.getElementById(g+"max").value;
+
+    if(minV>=maxV) return "Each grade must have Min < Max.";
+
+    if(i>0){
+      const prevMin=+document.getElementById(GRADES[i-1]+"min").value;
+      if(maxV!==prevMin-1){
+        return "Grade ranges must be continuous with no gaps or overlaps.";
+      }
+    }
+  }
+  return "";
+}
+
+function updateAll(){
+  const err=validateRanges();
+  rangeError.innerText=err;
+  download.disabled=!!err;
+
+  drawHistogram();
+  computeStats();
+  computeGradeSummary();
+}
+
+function drawHistogram(){
+  const ctx=hist.getContext("2d");
+  ctx.clearRect(0,0,380,240);
+
+  const marks=data.filter(d=>d.Course===course.value).map(d=>d["Total Marks"]);
+  if(!marks.length) return;
+
+  let bins=Array(10).fill(0);
+  marks.forEach(m=>bins[Math.min(9,Math.floor(m/10))]++);
+
+  bins.forEach((v,i)=>{
+    ctx.fillStyle="#5b3cc4";
+    ctx.fillRect(30+i*32,210-v*12,24,v*12);
+    ctx.fillStyle="#111827";
+    ctx.font="10px Arial";
+    ctx.fillText(`${i*10}-${i*10+9}`,30+i*32,228);
+  });
+
+  const mean=marks.reduce((a,b)=>a+b,0)/marks.length;
+  const std=Math.sqrt(marks.reduce((a,b)=>a+(b-mean)**2,0)/marks.length);
+
+  ctx.strokeStyle="#dc2626";
+  ctx.beginPath();
+  for(let x=0;x<=100;x++){
+    const y=(1/(std*Math.sqrt(2*Math.PI)))*Math.exp(-0.5*((x-mean)/std)**2);
+    const px=30+(x/10)*32;
+    const py=210-y*3000;
+    x===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  }
+  ctx.stroke();
+}
+
+function computeStats(){
+  const m=data.filter(d=>d.Course===course.value)
+    .map(d=>d["Total Marks"]).sort((a,b)=>a-b);
+  min.textContent=m[0];
+  max.textContent=m[m.length-1];
+  avg.textContent=(m.reduce((a,b)=>a+b,0)/m.length).toFixed(2);
+  med.textContent=m.length%2?m[Math.floor(m.length/2)]
+    :(m[m.length/2-1]+m[m.length/2])/2;
+}
+
+function computeGradeSummary(){
+  let counts={}; GRADES.forEach(g=>counts[g]=0);
+  data.filter(d=>d.Course===course.value).forEach(d=>{
+    for(const g of GRADES){
+      const mi=+document.getElementById(g+"min").value;
+      const ma=+document.getElementById(g+"max").value;
+      if(d["Total Marks"]>=mi && d["Total Marks"]<=ma){
+        counts[g]++; break;
+      }
+    }
+  });
+  gradeSummary.innerHTML="";
+  GRADES.forEach(g=>{
+    gradeSummary.innerHTML+=`<span>${g}: ${counts[g]}</span>`;
+  });
+}
+
+download.onclick=()=>{
+  let csv=`Instructor,${instructor.value}\nCourse,${course.value}\n\nBITS ID,Total Marks,Grade\n`;
+  data.filter(d=>d.Course===course.value).forEach(d=>{
+    for(const g of GRADES){
+      const mi=+document.getElementById(g+"min").value;
+      const ma=+document.getElementById(g+"max").value;
+      if(d["Total Marks"]>=mi && d["Total Marks"]<=ma){
+        csv+=`${d["BITS ID"]},${d["Total Marks"]},${g}\n`;
+        break;
+      }
+    }
+  });
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download="final_grades.csv";
+  a.click();
+  thankyou.innerText=`Thank you ${instructor.value}. Grades have been finalized.`;
+};
+</script>
+</body>
+</html>
