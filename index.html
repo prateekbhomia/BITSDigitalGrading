@@ -6,6 +6,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
+/* ===== BASE (LOCKED) ===== */
 body{
   margin:0;
   font-family:Segoe UI, Arial, sans-serif;
@@ -55,6 +56,11 @@ button{
   color:#fff;
   font-weight:500;
   cursor:pointer;
+  transition:transform .2s ease, opacity .2s ease;
+}
+button.secondary{
+  background:#e5e7eb;
+  color:#111827;
 }
 button:disabled{
   opacity:.4;
@@ -99,6 +105,7 @@ button:disabled{
   background:#ede9fe;
   padding:4px 8px;
   border-radius:999px;
+  transition:transform .25s ease, background-color .25s ease;
 }
 
 .grade-grid{
@@ -111,6 +118,7 @@ button:disabled{
   border-radius:8px;
   padding:8px;
   background:#fafafa;
+  transition:transform .25s ease, box-shadow .25s ease;
 }
 .min select{background:#fff7ed}
 .max select{background:#eff6ff}
@@ -124,6 +132,54 @@ button:disabled{
   margin-top:10px;
   font-size:13px;
   color:#065f46;
+}
+.actions{
+  display:flex;
+  gap:10px;
+  margin-top:10px;
+  align-items:center;
+}
+
+/* ===== ANIMATIONS (LOCKED) ===== */
+.grade.lift{
+  transform:translateY(-2px);
+  box-shadow:0 8px 20px rgba(0,0,0,.12);
+}
+button.enabled{
+  transform:scale(1.03);
+}
+.grade-summary span.pulse{
+  transform:scale(1.08);
+  background:#ddd6fe;
+}
+
+/* ===== TIMER CLOCK ===== */
+.timer-wrapper{
+  margin-top:14px;
+  display:flex;
+  justify-content:center;
+}
+.timer-clock{
+  width:90px;
+  height:90px;
+  position:relative;
+}
+.timer-clock svg{
+  transform:rotate(-90deg);
+}
+.timer-text{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:600;
+  font-size:14px;
+  color:#5b3cc4;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation:none!important;transition:none!important;}
 }
 </style>
 </head>
@@ -139,9 +195,7 @@ button:disabled{
 <div class="controls">
   <input id="instructor" placeholder="Instructor name (mandatory)">
   <input type="file" id="file" accept=".xlsx">
-  <select id="course">
-    <option value="">Select course</option>
-  </select>
+  <select id="course"><option value="">Select course</option></select>
 </div>
 
 <div id="welcome" class="notice"></div>
@@ -165,7 +219,26 @@ button:disabled{
   <div class="panel">
     <div class="grade-grid" id="grades"></div>
     <div class="error" id="rangeError"></div>
-    <button id="download" disabled>Finalize & Download</button>
+
+    <div class="actions">
+      <button class="secondary" id="resetRanges">Reset Ranges</button>
+      <button id="download" disabled>Finalize & Download</button>
+    </div>
+
+    <div class="timer-wrapper">
+      <div class="timer-clock">
+        <svg width="90" height="90">
+          <circle cx="45" cy="45" r="40" stroke="#ede9fe" stroke-width="6" fill="none"/>
+          <circle id="timerArc" cx="45" cy="45" r="40"
+            stroke="#5b3cc4" stroke-width="6" fill="none"
+            stroke-linecap="round"
+            stroke-dasharray="251"
+            stroke-dashoffset="251"/>
+        </svg>
+        <div class="timer-text" id="timerText">00:00</div>
+      </div>
+    </div>
+
     <div id="thankyou" class="notice"></div>
   </div>
 </div>
@@ -173,6 +246,34 @@ button:disabled{
 </div>
 
 <script>
+/* ===== TIMER (LOCKED) ===== */
+const gradingStartTime = Date.now();
+let timerInterval=null;
+const circumference = 2 * Math.PI * 40;
+
+function startTimer(){
+  const arc=document.getElementById("timerArc");
+  const text=document.getElementById("timerText");
+
+  timerInterval=setInterval(()=>{
+    const elapsed = Date.now() - gradingStartTime;
+    const min = Math.floor(elapsed/60000);
+    const sec = Math.floor((elapsed%60000)/1000);
+
+    text.innerText =
+      String(min).padStart(2,"0")+":"+
+      String(sec).padStart(2,"0");
+
+    const progress = Math.min(elapsed/3600000,1);
+    arc.style.strokeDashoffset =
+      circumference * (1-progress);
+  },1000);
+}
+
+document.addEventListener("DOMContentLoaded",startTimer);
+
+/* ===== EVERYTHING BELOW IS LOCKED ===== */
+
 const GRADES=["A","A-","B","B-","C","C-","D","E"];
 const DEFAULTS={
   "A":[80,100],"A-":[70,79],"B":[60,69],"B-":[50,59],
@@ -180,6 +281,8 @@ const DEFAULTS={
 };
 
 let data=[];
+let previousSummary={};
+let finalizeCount = 0;   /* ✅ NEW: attempt counter */
 
 file.onchange=e=>{
   const r=new FileReader();
@@ -204,9 +307,16 @@ course.onchange=()=>{
   updateAll();
 };
 
+function cascadeMaxFrom(index){
+  for(let i=index+1;i<GRADES.length;i++){
+    const prevMin=+document.getElementById(GRADES[i-1]+"min").value;
+    document.getElementById(GRADES[i]+"max").value=prevMin-1;
+  }
+}
+
 function buildGradeUI(){
   grades.innerHTML="";
-  GRADES.forEach(g=>{
+  GRADES.forEach((g,idx)=>{
     const card=document.createElement("div");
     card.className="grade";
 
@@ -220,11 +330,23 @@ function buildGradeUI(){
 
     minSel.id=g+"min";
     maxSel.id=g+"max";
-    minSel.onchange=updateAll;
-    maxSel.onchange=updateAll;
+
+    minSel.onchange=()=>{
+      card.classList.add("lift");
+      setTimeout(()=>card.classList.remove("lift"),300);
+      cascadeMaxFrom(idx);
+      updateAll();
+    };
+
+    maxSel.onchange=()=>{
+      card.classList.add("lift");
+      setTimeout(()=>card.classList.remove("lift"),300);
+      updateAll();
+    };
 
     card.innerHTML=`<strong>${g}</strong><div class="min">Min</div>`;
     card.querySelector(".min").appendChild(minSel);
+
     const maxDiv=document.createElement("div");
     maxDiv.className="max";
     maxDiv.innerText="Max";
@@ -235,19 +357,24 @@ function buildGradeUI(){
   });
 }
 
+resetRanges.onclick=()=>{
+  if(!confirm("This will reset all grade ranges to the default values.\nDo you want to continue?")) return;
+  GRADES.forEach(g=>{
+    document.getElementById(g+"min").value=DEFAULTS[g][0];
+    document.getElementById(g+"max").value=DEFAULTS[g][1];
+  });
+  updateAll();
+};
+
 function validateRanges(){
   for(let i=0;i<GRADES.length;i++){
     const g=GRADES[i];
     const minV=+document.getElementById(g+"min").value;
     const maxV=+document.getElementById(g+"max").value;
-
     if(minV>=maxV) return "Each grade must have Min < Max.";
-
     if(i>0){
       const prevMin=+document.getElementById(GRADES[i-1]+"min").value;
-      if(maxV!==prevMin-1){
-        return "Grade ranges must be continuous with no gaps or overlaps.";
-      }
+      if(maxV!==prevMin-1) return "Grade ranges must be continuous with no gaps or overlaps.";
     }
   }
   return "";
@@ -257,7 +384,8 @@ function updateAll(){
   const err=validateRanges();
   rangeError.innerText=err;
   download.disabled=!!err;
-
+  if(!err) download.classList.add("enabled");
+  else download.classList.remove("enabled");
   drawHistogram();
   computeStats();
   computeGradeSummary();
@@ -273,21 +401,38 @@ function drawHistogram(){
   let bins=Array(10).fill(0);
   marks.forEach(m=>bins[Math.min(9,Math.floor(m/10))]++);
 
-  bins.forEach((v,i)=>{
-    ctx.fillStyle="#5b3cc4";
-    ctx.fillRect(30+i*32,210-v*12,24,v*12);
-    ctx.fillStyle="#111827";
-    ctx.font="10px Arial";
-    ctx.fillText(`${i*10}-${i*10+9}`,30+i*32,228);
-  });
+  let start=null;
+  function animate(ts){
+    if(!start) start=ts;
+    const p=Math.min((ts-start)/400,1);
+    ctx.clearRect(0,0,380,240);
 
+    bins.forEach((v,i)=>{
+      const h=v*12*p;
+      ctx.fillStyle="#5b3cc4";
+      ctx.fillRect(30+i*32,210-h,24,h);
+      ctx.fillStyle="#111827";
+      ctx.font="10px Arial";
+      ctx.fillText(`${i*10}-${i*10+9}`,30+i*32,228);
+    });
+
+    drawBellCurve(ctx, marks, p);
+
+    if(p<1) requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+}
+
+function drawBellCurve(ctx, marks, progress){
   const mean=marks.reduce((a,b)=>a+b,0)/marks.length;
   const std=Math.sqrt(marks.reduce((a,b)=>a+(b-mean)**2,0)/marks.length);
-
   ctx.strokeStyle="#dc2626";
+  ctx.lineWidth=2;
   ctx.beginPath();
-  for(let x=0;x<=100;x++){
-    const y=(1/(std*Math.sqrt(2*Math.PI)))*Math.exp(-0.5*((x-mean)/std)**2);
+  const maxX=Math.floor(100*progress);
+  for(let x=0;x<=maxX;x++){
+    const y=(1/(std*Math.sqrt(2*Math.PI)))*
+      Math.exp(-0.5*((x-mean)/std)**2);
     const px=30+(x/10)*32;
     const py=210-y*3000;
     x===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
@@ -318,11 +463,25 @@ function computeGradeSummary(){
   });
   gradeSummary.innerHTML="";
   GRADES.forEach(g=>{
-    gradeSummary.innerHTML+=`<span>${g}: ${counts[g]}</span>`;
+    const span=document.createElement("span");
+    span.textContent=`${g}: ${counts[g]}`;
+    if(previousSummary[g]!==undefined && previousSummary[g]!==counts[g]){
+      span.classList.add("pulse");
+      setTimeout(()=>span.classList.remove("pulse"),300);
+    }
+    gradeSummary.appendChild(span);
+    previousSummary[g]=counts[g];
   });
 }
 
 download.onclick=()=>{
+  finalizeCount++;   /* ✅ increment attempt count */
+  clearInterval(timerInterval);
+
+  const elapsed = Date.now() - gradingStartTime;
+  const minT=Math.floor(elapsed/60000);
+  const secT=Math.floor((elapsed%60000)/1000);
+
   let csv=`Instructor,${instructor.value}\nCourse,${course.value}\n\nBITS ID,Total Marks,Grade\n`;
   data.filter(d=>d.Course===course.value).forEach(d=>{
     for(const g of GRADES){
@@ -334,11 +493,22 @@ download.onclick=()=>{
       }
     }
   });
+
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
   a.download="final_grades.csv";
   a.click();
-  thankyou.innerText=`Thank you ${instructor.value}. Grades have been finalized.`;
+
+  if(finalizeCount === 1){
+    thankyou.innerText =
+      `You completed grading in ${minT} min ${secT} sec in your first attempt.`;
+  } else {
+    const suffix = finalizeCount === 2 ? "second"
+                  : finalizeCount === 3 ? "third"
+                  : finalizeCount + "th";
+    thankyou.innerText =
+      `You took a total of ${minT} min ${secT} sec to complete the grading in your ${suffix} attempt.`;
+  }
 };
 </script>
 </body>
