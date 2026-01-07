@@ -37,17 +37,39 @@ header h2{
   color:#5b3cc4;
 }
 
+/* ===== CONTROLS ===== */
 .controls{
   display:grid;
   grid-template-columns:1.2fr 1fr 1fr;
   gap:12px;
-  margin-bottom:12px;
+  margin-bottom:6px;
 }
 input,select{
   padding:8px 10px;
   border-radius:6px;
   border:1px solid #d1d5db;
 }
+
+/* ===== Subtle file guidance (world-class) ===== */
+.file-guidance{
+  grid-column:2 / 3;
+  margin-top:4px;
+  padding:8px 10px;
+  font-size:12px;
+  color:#4b5563;
+  background:#f9fafb;
+  border-radius:6px;
+}
+.file-guidance summary{
+  cursor:pointer;
+  font-weight:500;
+  color:#312e81;
+}
+.file-guidance p{
+  margin:6px 0 0;
+  line-height:1.5;
+}
+
 button{
   padding:10px 16px;
   border:none;
@@ -196,6 +218,27 @@ button.enabled{
   <input id="instructor" placeholder="Instructor name (mandatory)">
   <input type="file" id="file" accept=".xlsx">
   <select id="course"><option value="">Select course</option></select>
+
+  <!-- Optional, calm guidance BELOW file upload -->
+  <details class="file-guidance">
+    <summary>Marks file format guidance</summary>
+    <p>
+      The uploaded Excel file should contain exactly three columns:
+      <b>BITS ID</b>, <b>Course</b>, and <b>Total Marks</b>.
+    </p>
+    <p>
+      Total Marks should be entered as whole numbers. Fractional values
+      should be rounded to the nearest integer (for example, 80.2 → 81).
+    </p>
+    <p>
+      Students who did not appear for the trimester-end examination and are
+      to be awarded an <b>NC</b> grade should not be included in the file.
+    </p>
+    <p>
+      This console is intended for grading only those students who appeared
+      for the examination.
+    </p>
+  </details>
 </div>
 
 <div id="welcome" class="notice"></div>
@@ -261,8 +304,7 @@ function startTimer(){
     const sec = Math.floor((elapsed%60000)/1000);
 
     text.innerText =
-      String(min).padStart(2,"0")+":"+
-      String(sec).padStart(2,"0");
+      String(min).padStart(2,"0")+":"+String(sec).padStart(2,"0");
 
     const progress = Math.min(elapsed/3600000,1);
     arc.style.strokeDashoffset =
@@ -272,7 +314,7 @@ function startTimer(){
 
 document.addEventListener("DOMContentLoaded",startTimer);
 
-/* ===== EVERYTHING BELOW IS LOCKED ===== */
+/* ===== EVERYTHING BELOW IS LOCKED (VERBATIM) ===== */
 
 const GRADES=["A","A-","B","B-","C","C-","D","E"];
 const DEFAULTS={
@@ -282,7 +324,7 @@ const DEFAULTS={
 
 let data=[];
 let previousSummary={};
-let finalizeCount = 0;   /* ✅ NEW: attempt counter */
+let finalizeCount = 0;
 
 file.onchange=e=>{
   const r=new FileReader();
@@ -475,7 +517,7 @@ function computeGradeSummary(){
 }
 
 download.onclick=()=>{
-  finalizeCount++;   /* ✅ increment attempt count */
+  finalizeCount++;
   clearInterval(timerInterval);
 
   const elapsed = Date.now() - gradingStartTime;
